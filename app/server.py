@@ -6,7 +6,7 @@ import urllib.parse
 import sys
 import datetime
 import random
-import urllib.request
+import requests
 
 from flask import Flask, Response
 from flask_api import status
@@ -16,9 +16,9 @@ app = Flask(__name__)
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
 
-FFMPEG_KEYFRAME_CMD = "/usr/bin/ffmpeg -loglevel panic -ss {0} -i {1} -c:v copy -c:a copy -f mp4 -movflags frag_keyframe+empty_moov -to {2} -copyts pipe:1 > {3}"
+FFMPEG_KEYFRAME_CMD = "/usr/bin/ffmpeg -ss {0} -i {1} -c:v copy -c:a copy -f mp4 -movflags frag_keyframe+empty_moov -to {2} -copyts pipe:1 > {3}"
 
-FFMPEG_FRAMEACC_CMD = "/usr/bin/ffmpeg -loglevel panic -ss {0} -i {1} -c:v libx264 -crf 18 -c:a aac -b:a 128k -f mp4 -movflags frag_keyframe+empty_moov -t {2} pipe:1 > {3}"
+FFMPEG_FRAMEACC_CMD = "/usr/bin/ffmpeg -ss {0} -i {1} -c:v libx264 -crf 18 -c:a aac -b:a 128k -f mp4 -movflags frag_keyframe+empty_moov -t {2} pipe:1 > {3}"
 
 
 def sec_to_tdelta(sec):
@@ -72,6 +72,21 @@ def generate_clip(key, t_start, t_stop, frame_accurate):
     finally:
         os.unlink(tmp_fname)
 
+def clean_signed_url(url):
+    if '://' not in url:
+        # fix some weirdness with how uwsgi passes this parameter
+        if ':/' in url:
+            return url.replace(':/','://',1)
+    return url
+            
+def get_key_from_signed_url(url):
+    signed_url = clean_signed_url(signed_url)
+    parsed_url = urllib.parse.urlsplit(signed_url)
+    path = urllib.parse.unquote(parsed_url.path)
+    if path.startswith('/'):
+        return path[1:]
+    return path
+    
 
 @app.route('/clip/frameaccurate/<string:start_sec>/<string:stop_sec>/<path:signed_url>',
            methods=['GET'])
@@ -84,34 +99,50 @@ def clip_frame_accurate(signed_url=None, start_sec=None, stop_sec=None):
 def clip_keyframe(signed_url=None, start_sec=None, stop_sec=None):
     return clip(signed_url=signed_url, start_sec=start_sec, stop_sec=stop_sec, frame_accurate=False)
 
+def check_url(url):
+    try:
+        # use stream=True to avoid downloading, just checking status code
+        # could change this to a HEAD request, but AWS signs the method, so
+        # if it is a signed URL, can't change to a HEAD or it will not be validated
+        r = requests.get(url,timeout=10,stream=True)
+        if r.status_code == 200:
+            # may have been some redirects, if so get the final url
+            final_url = r.url
+            r.close()
+            return final_url
+        else:
+            LOGGER.info("Unable to verify url {0}, status={1}".format(url,r.status_code))
+            r.close()
+            return None
+    except:
+        LOGGER.exception("Unable to verify url {0}".format(url))
+        return None
 
+_domains = None
+def check_domain(dom):
+    global _domains
+    if _domains == None:
+        _domains = set([x.strip().lower() for x in os.getenv('DOMAIN_LIST').split(',')])
+    return dom.lower() in _domains
+        
 def clip(signed_url=None, start_sec=None, stop_sec=None, frame_accurate=False):
     LOGGER.info("Request received, start={0}, stop={1}, signed_url={2}".format(start_sec,stop_sec,signed_url))
-    if '://' not in signed_url:
-        # fix some weirdness with how uwsgi passes this parameter
-        if ':/' in signed_url:
-            signed_url = signed_url.replace(':/','://',1)
-    parsed_url = urllib.parse.urlsplit(signed_url)
+    final_url = check_url(clean_signed_url(signed_url))
+    if final_url == None:
+        LOGGER.warn("Object not found: {0}".format(signed_url))
+        return 'error: object not found', status.HTTP_404_NOT_FOUND
+    parsed_url = urllib.parse.urlsplit(final_url)
     netloc = parsed_url.netloc.lower()
-    # same bucket?
-    source_bucket = os.getenv('SOURCE_BUCKET').lower()
-    m = re.match('(.*)\.s3\.amazonaws\.com$',netloc)
-    if m and m.groups()[0] == source_bucket:
-        # check permission
-        r = urllib.request.urlopen(signed_url)
-        LOGGER.info("GET request status code: {0}".format(r.status))
-        if r.status == 200:
-            path = urllib.parse.unquote(parsed_url.path)
-            if path.startswith('/'):
-                path = path[1:]
-            gen = generate_clip(path,start_sec,stop_sec,frame_accurate)
-            return Response(gen,mimetype="video/mp4")
-        else:
-            LOGGER.info("HEAD request failed")
-            return 'error: object not found', status.HTTP_404_NOT_FOUND
-    else:
-        LOGGER.info("Invalid domain {0}, doesn't match configured source {1}".format(netloc,source_bucket))
-        return 'invalid domain, does not match configured domain', status.HTTP_403_FORBIDDEN
+    bucket = check_domain(netloc)
+    if bucket == None:
+        LOGGER.warn("Invalid domain {0}".format(netloc))
+        return 'error: invalid domain', status.HTTP_404_NOT_FOUND
+    
+    path = urllib.parse.unquote(parsed_url.path)
+    if path.startswith('/'):
+        path = path[1:]
+    gen = generate_clip(path,start_sec,stop_sec,frame_accurate)
+    return Response(gen,mimetype="video/mp4")
     
         
 if __name__=="__main__":

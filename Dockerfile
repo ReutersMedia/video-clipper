@@ -15,7 +15,8 @@ COPY app /app
 COPY entrypoint.sh /root/entrypoint.sh
 
 ENV SOURCE_BUCKET=changeme \
-    S3_MOUNT_POINT=/mnt/s3 
+    S3_MOUNT_POINT=/mnt/s3 \
+    DOMAIN_LIST=changeme
 
 EXPOSE 80
 
