@@ -1,11 +1,9 @@
 FROM ubuntu:18.04
 
 RUN apt-get update && \
-    apt-get install -y fuse python3 python3-pip supervisor ffmpeg curl && \
-    pip3 install -U boto3 && \
+    apt-get install -y fuse python3 python3-pip supervisor ffmpeg curl nginx uwsgi uwsgi-plugin-python3 && \
     curl -L http://bit.ly/goofys-latest > /goofys && \
     chmod 500 /goofys && \
-    apt-get install -y nginx uwsgi uwsgi-plugin-python3 && \
     pip3 install flask flask_api requests && \
     ln -sf /dev/stdout /var/log/nginx/access.log && \
     ln -sf /dev/stderr /var/log/nginx/error.log

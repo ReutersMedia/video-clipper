@@ -69,8 +69,8 @@ def generate_clip(key, t_start, t_stop, frame_accurate):
         LOGGER.info("ffmpeg return code: {0}".format(rc))
     except:
         LOGGER.exception("Error processing video {0}".format(key))
-    #finally:
-    #    os.unlink(tmp_fname)
+    finally:
+        os.unlink(tmp_fname)
 
 
 @app.route('/clip/frameaccurate/<string:start_sec>/<string:stop_sec>/<path:signed_url>',
