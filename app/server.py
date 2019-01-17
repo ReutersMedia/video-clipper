@@ -78,7 +78,11 @@ def clean_signed_url(url):
         if ':/' in url:
             return url.replace(':/','://',1)
     return url
-            
+
+
+@app.route('/health-check')
+def health_check():
+    return 'OK', status.HTTP_200_OK
 
 @app.route('/clip/frameaccurate/<string:start_sec>/<string:stop_sec>/<path:signed_url>',
            methods=['GET'])
