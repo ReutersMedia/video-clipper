@@ -10,7 +10,7 @@ Provides a web service that clips videos stored on S3.
 
 The START and END time codes can be expressed as either seconds from the start, with millisecond precision (e.g. 25.912).  Or it can be expressed in hours, minutes, and seconds (e.g. 00:01:05.293).
 
-The SIGNED_URL should be an s3 pre-signed URL for the object.  The application has full access to the bucket, but access will not be provided to the caller unless they can demonstrate access to the requested source video, via a signed URL.  Before providing the video, the application will check that the signed URL is valid, but access the video through the goofys mount, since this does not require streaming all of the original video and allows ffmpeg to seek efficiently within the file.  The SIGNED_URL will be parsed to check the domain, and extract the key of the source video.
+The SIGNED_URL should be an s3 pre-signed URL for the object.  The application has full access to the bucket, but access will not be provided to the caller unless they can demonstrate access to the requested source video, via a signed URL.  Before providing the video, the application will check that the signed URL is valid, but access the video through the goofys mount, since this does not require streaming all of the original video and allows ffmpeg to seek efficiently within the file.  The SIGNED_URL will be parsed to check the domain against the authorized DOMAIN_LIST.  The domain for the SIGNED_URL, and for any final redirect for the url, need to be on the domain whitelist.  Otherwise the server can be used to make arbitrary requests to third party domains.  
 
 
 ## Configuration
@@ -26,7 +26,8 @@ services:
     ports:
       - "8581:80"
     environment:
-      - SOURCE_BUCKET=${SOURCE_BUCKET}
+      - SOURCE_BUCKET=my_bucket
+      - DOMAIN_LIST=mydomain1,mydomain2
     cap_add:
       - mknod
       - sys_admin

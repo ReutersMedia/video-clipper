@@ -79,14 +79,6 @@ def clean_signed_url(url):
             return url.replace(':/','://',1)
     return url
             
-def get_key_from_signed_url(url):
-    signed_url = clean_signed_url(signed_url)
-    parsed_url = urllib.parse.urlsplit(signed_url)
-    path = urllib.parse.unquote(parsed_url.path)
-    if path.startswith('/'):
-        return path[1:]
-    return path
-    
 
 @app.route('/clip/frameaccurate/<string:start_sec>/<string:stop_sec>/<path:signed_url>',
            methods=['GET'])
@@ -124,21 +116,25 @@ def check_domain(dom):
     if _domains == None:
         _domains = set([x.strip().lower() for x in os.getenv('DOMAIN_LIST').split(',')])
     return dom.lower() in _domains
-        
+
+
 def clip(signed_url=None, start_sec=None, stop_sec=None, frame_accurate=False):
     LOGGER.info("Request received, start={0}, stop={1}, signed_url={2}".format(start_sec,stop_sec,signed_url))
-    final_url = check_url(clean_signed_url(signed_url))
+    signed_url = clean_signed_url(signed_url)
+    parsed_url = urllib.parse.urlsplit(signed_url)
+    if not check_domain(parsed_url.netloc):
+        LOGGER.warn("Invalid signed_url domain: {0}".format(parsed_url.netloc))
+        return 'error: invalid domain', status.HTTP_404_NOT_FOUND
+    final_url = check_url(signed_url)
     if final_url == None:
         LOGGER.warn("Object not found: {0}".format(signed_url))
         return 'error: object not found', status.HTTP_404_NOT_FOUND
-    parsed_url = urllib.parse.urlsplit(final_url)
-    netloc = parsed_url.netloc.lower()
-    bucket = check_domain(netloc)
-    if bucket == None:
-        LOGGER.warn("Invalid domain {0}".format(netloc))
+    parsed_final_url = urllib.parse.urlsplit(final_url)
+    final_netloc = parsed_final_url.netloc
+    if not check_domain(final_netloc):
+        LOGGER.warn("Invalid domain {0}".format(final_netloc))
         return 'error: invalid domain', status.HTTP_404_NOT_FOUND
-    
-    path = urllib.parse.unquote(parsed_url.path)
+    path = urllib.parse.unquote(parsed_final_url.path)
     if path.startswith('/'):
         path = path[1:]
     gen = generate_clip(path,start_sec,stop_sec,frame_accurate)
